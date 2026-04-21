@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  TRADE_CUSTOMER
+  ADMIN
+  STAFF
+}
+
+enum BookingStatus {
+  HOLD
+  PENDING_APPROVAL
+  CONFIRMED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum FulfilmentType {
+  PICKUP
+  DELIVERY
+}
+
+enum TradeAccountStatus {
+  APPLIED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  phone          String?
+  passwordHash   String
+  firstName      String
+  lastName       String
+  role           UserRole        @default(CUSTOMER)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  addresses      Address[]
+  bookings       Booking[]
+  documents      Document[]
+  tradeAccount   TradeAccount?
+  supportTickets SupportTicket[]
+  auditLogs      AuditLog[]      @relation("AuditActor")
+}
+
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  label     String
+  line1     String
+  line2     String?
+  suburb    String
+  state     String
+  postCode  String
+  notes     String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model EquipmentCategory {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  description String?
+  equipment   Equipment[]
+}
+
+model Equipment {
+  id                 String            @id @default(cuid())
+  sku                String            @unique
+  name               String
+  slug               String            @unique
+  description        String
+  specsJson          Json?
+  requiresLicence    Boolean           @default(false)
+  deliveryEligible   Boolean           @default(true)
+  baseDailyRateCents Int
+  bondCents          Int
+  stockQty           Int               @default(1)
+  isActive           Boolean           @default(true)
+  categoryId         String
+  category           EquipmentCategory @relation(fields: [categoryId], references: [id])
+  addOns             EquipmentAddOn[]
+  images             EquipmentImage[]
+  bookingItems       BookingItem[]
+  pricingRules       PricingRule[]
+
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model EquipmentImage {
+  id          String    @id @default(cuid())
+  equipmentId String
+  url         String
+  isPrimary   Boolean   @default(false)
+  equipment   Equipment @relation(fields: [equipmentId], references: [id])
+
+  @@index([equipmentId])
+}
+
+model EquipmentAddOn {
+  id             String    @id @default(cuid())
+  equipmentId    String
+  name           String
+  dailyRateCents Int
+  equipment      Equipment @relation(fields: [equipmentId], references: [id])
+
+  @@index([equipmentId])
+}
+
+model PricingRule {
+  id              String    @id @default(cuid())
+  equipmentId     String?
+  tradeTier       String?
+  minimumHireDays Int       @default(1)
+  rateCents       Int
+  createdAt       DateTime  @default(now())
+  equipment       Equipment? @relation(fields: [equipmentId], references: [id])
+
+  @@index([equipmentId])
+  @@index([tradeTier])
+}
+
+model Booking {
+  id                    String          @id @default(cuid())
+  userId                 String
+  status                 BookingStatus   @default(HOLD)
+  startAt                DateTime
+  endAt                  DateTime
+  fulfilmentType         FulfilmentType
+  pickupLocationId       String?
+  deliveryAddressId      String?
+  deliveryZoneId         String?
+  deliveryFeeCents       Int             @default(0)
+  subtotalCents          Int             @default(0)
+  bondCents              Int             @default(0)
+  totalCents             Int             @default(0)
+  holdExpiresAt          DateTime?
+  requiresManualApproval Boolean         @default(false)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  user                   User            @relation(fields: [userId], references: [id])
+  items                  BookingItem[]
+  invoice                Invoice?
+
+  @@index([userId])
+  @@index([status])
+  @@index([startAt, endAt])
+}
+
+model BookingItem {
+  id             String    @id @default(cuid())
+  bookingId      String
+  equipmentId    String
+  qty            Int       @default(1)
+  dailyRateCents Int
+  booking        Booking   @relation(fields: [bookingId], references: [id])
+  equipment      Equipment @relation(fields: [equipmentId], references: [id])
+
+  @@index([bookingId])
+  @@index([equipmentId])
+}
+
+model Invoice {
+  id             String   @id @default(cuid())
+  bookingId       String   @unique
+  stripePaymentId String?
+  amountCents     Int
+  gstCents        Int
+  status          String
+  issuedAt        DateTime @default(now())
+  booking         Booking  @relation(fields: [bookingId], references: [id])
+}
+
+model TradeAccount {
+  id              String             @id @default(cuid())
+  userId           String             @unique
+  companyName      String
+  abn              String
+  tier             String             @default("STANDARD")
+  status           TradeAccountStatus @default(APPLIED)
+  approvedByUserId String?
+  approvedAt       DateTime?
+  createdAt        DateTime           @default(now())
+  user             User               @relation(fields: [userId], references: [id])
+
+  @@index([status])
+}
+
+model DeliveryZone {
+  id                String   @id @default(cuid())
+  name              String
+  postCodes         String[]
+  feeCents          Int
+  sameDayCutoffHour Int      @default(12)
+}
+
+model Document {
+  id         String   @id @default(cuid())
+  userId      String
+  type        String
+  providerKey String
+  mimeType    String
+  status      String   @default("PENDING_REVIEW")
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model SupportTicket {
+  id        String   @id @default(cuid())
+  userId     String
+  bookingId  String?
+  type       String
+  subject    String
+  message    String
+  status     String   @default("OPEN")
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  entityType  String
+  entityId    String
+  action      String
+  beforeJson  Json?
+  afterJson   Json?
+  createdAt   DateTime @default(now())
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+}
